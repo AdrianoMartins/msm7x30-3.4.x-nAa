@@ -3871,7 +3871,7 @@ static struct bma250_platform_data bma250_platform_data = {
 #endif
 #define APDS9702_WAIT_TIME   5000
 
-static int apds9702_gpio_setup(int request)
+static int apds9702_gpio_setup(struct device *dev, int request)
 {
 	if (request) {
 		return gpio_request(APDS9702_DOUT_GPIO, "apds9702_dout");
@@ -3881,7 +3881,8 @@ static int apds9702_gpio_setup(int request)
 	}
 }
 
-static void apds9702_power_mode(int enable)
+
+static void apds9702_power_mode(struct device *dev, int enable)
 {
 	enable = !!enable;
 	if (enable)
@@ -4271,7 +4272,7 @@ static void msm_hsusb_vbus_power(unsigned phy_info, int on)
 static struct msm_usb_host_platform_data msm_usb_host_pdata = {
         .phy_info   = (USB_PHY_INTEGRATED | USB_PHY_MODEL_45NM),
         .vbus_power = msm_hsusb_vbus_power,
-        .power_budget   = 180,
+        .power_budget   = 300,
 };
 #endif
 
@@ -5203,24 +5204,6 @@ static void __init msm_fb_add_devices(void)
 #endif /* CONFIG_FB_MSM_HDMI_SII9024A_PANEL */
 }
 
-#ifdef CONFIG_ANDROID_RAM_CONSOLE
-#define MSM_RAM_CONSOLE_SIZE 256*1024
-static struct resource ram_console_resources[] = {
-	{
-		.start  = 0,
-		.end    = 0,
-		.flags  = IORESOURCE_MEM,
-	},
-};
-
-static struct platform_device ram_console_device = {
-	.name           = "ram_console",
-	.id             = -1,
-	.num_resources  = ARRAY_SIZE(ram_console_resources),
-	.resource       = ram_console_resources,
-};
-#endif
-
 static struct msm_psy_batt_pdata msm_psy_batt_data = {
 	.voltage_min_design 	= 2800,
 	.voltage_max_design	= 4300,
@@ -5299,6 +5282,9 @@ struct platform_device msm_device_sdio_al = {
 static struct platform_device *devices[] __initdata = {
 #if defined(CONFIG_SERIAL_MSM) || defined(CONFIG_MSM_SERIAL_DEBUGGER)
 	&msm_device_uart3,
+#endif
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+	&ram_console_device,
 #endif
 #ifdef CONFIG_MSM_PROC_COMM_REGULATOR
 	&msm_proccomm_regulator_dev,
@@ -5422,9 +5408,6 @@ static struct platform_device *devices[] __initdata = {
 #endif
 #ifdef CONFIG_BT
 	&mogami_device_rfkill,
-#endif
-#ifdef CONFIG_ANDROID_RAM_CONSOLE
-	&ram_console_device,
 #endif
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 	&msm_device_tsif,
@@ -7159,6 +7142,9 @@ static void __init msm7x30_reserve(void)
 {
 	reserve_info = &msm7x30_reserve_info;
 	msm_reserve();
+#ifdef CONFIG_ANDROID_PERSISTENT_RAM
+	add_persistent_ram();
+#endif
 }
 
 static void __init msm7x30_allocate_memory_regions(void)
@@ -7172,18 +7158,6 @@ static void __init msm7x30_allocate_memory_regions(void)
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
 	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
 		size, addr, __pa(addr));
-
-#ifdef CONFIG_ANDROID_RAM_CONSOLE
-	/* RAM Console can't use alloc_bootmem(), since that zeroes the
-	 * region */
-	size = MSM_RAM_CONSOLE_SIZE;
-	ram_console_resources[0].start = msm_fb_resources[0].end+1;
-	ram_console_resources[0].end = ram_console_resources[0].start + size - 1;
-	pr_info("allocating %lu bytes at (%lx physical) for ram console\n",
-		size, (unsigned long)ram_console_resources[0].start);
-	/* We still have to reserve it, though */
-	reserve_bootmem(ram_console_resources[0].start,size,0);
-#endif
 }
 
 static void __init msm7x30_map_io(void)
