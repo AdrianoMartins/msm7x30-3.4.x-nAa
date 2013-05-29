@@ -1,5 +1,5 @@
-#ifndef __LINUX_AS3676_H
-#define __LINUX_AS3676_H
+#ifndef __LINUX_AS3676_SEMC_H
+#define __LINUX_AS3676_SEMC_H
 
 /*    ^
  *    |          k2 /------- y3
@@ -72,11 +72,21 @@ struct as3676_als_config {
 	struct as3676_als_curve curve[AS3676_AMB_MAX];
 };
 
-struct as3676_audio_config {
-	int current_3x;
-	int audio_control;
-	int audio_input;
-	int audio_output;
+enum as3676_pwm_dim_speed {
+	AS3676_TOTAL_TIME_1000MS	= 0,
+	AS3676_TOTAL_TIME_1900MS	= 1,
+	AS3676_TOTAL_TIME_500MS	= 2,
+	AS3676_TOTAL_TIME_950MS	= 3,
+	AS3676_TOTAL_TIME_100MS	= 4,
+	AS3676_TOTAL_TIME_190MS	= 5,
+	AS3676_TOTAL_TIME_50MS	= 6,
+	AS3676_TOTAL_TIME_95MS	= 7,
+	AS3676_DIM_SPEED_MAX,
+};
+
+struct as3676_softdim_config {
+	int enable;
+	enum as3676_pwm_dim_speed dim_speed;
 };
 
 enum as3676_sinks {
@@ -98,17 +108,13 @@ enum as3676_sinks {
 };
 
 enum as3676_led_flags {
-	AS3676_FLAG_RGB		= (1 << 0), /* is RGB */
-	AS3676_FLAG_BLINK	= (1 << 1), /* should have blinking */
-	AS3676_FLAG_ALS_GROUP1	= (1 << 2), /* connected to the ALS group1 */
-	AS3676_FLAG_ALS_GROUP2	= (1 << 3), /* connected to the ALS group2 */
-	AS3676_FLAG_ALS_GROUP3	= (1 << 4), /* connected to the ALS group3 */
-	AS3676_FLAG_PWM_INIT	= (1 << 5), /* should turn on slowly once */
-	AS3676_FLAG_PWM_CTRL	= (1 << 6),
-	AS3676_FLAG_DLS	= (1 << 7), /* should be connected to the DLS */
-	AS3676_FLAG_AUDIO 	= (1 << 8), /* should be connected to audio*/
-	AS3676_FLAG_WAIT_RESUME	= (1 << 9),
-					/* should not control during suspend */
+	AS3676_FLAG_BLINK	= (1 << 0), /* should have blinking */
+	AS3676_FLAG_ALS_GROUP1	= (1 << 1), /* connected to the ALS group1 */
+	AS3676_FLAG_ALS_GROUP2	= (1 << 2), /* connected to the ALS group2 */
+	AS3676_FLAG_ALS_GROUP3	= (1 << 3), /* connected to the ALS group3 */
+	AS3676_FLAG_PWM_CTRL	= (1 << 4),
+	AS3676_FLAG_DLS	= (1 << 5), /* should be connected to the DLS */
+
 	AS3676_FLAG_ALS	= AS3676_FLAG_ALS_GROUP1,
 	AS3676_FLAG_ALS_MASK	= (AS3676_FLAG_ALS_GROUP1 |
 					AS3676_FLAG_ALS_GROUP2 |
@@ -120,7 +126,6 @@ struct as3676_platform_led {
 	int sinks;
 	int flags;
 	int max_current;
-	int hw_max_current;
 	int default_brightness;
 };
 
@@ -136,8 +141,9 @@ struct as3676_platform_data {
 	int dls_connected;
 	int num_leds;
 	struct as3676_als_config *als_config;
-	struct as3676_audio_config *audio_config;
+	int softdim_enable;
 	int ldo_mV;
+	int ovp_high;
 };
 
 #endif
