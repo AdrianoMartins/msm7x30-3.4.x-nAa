@@ -504,8 +504,6 @@ static int pm8058_gpios_init(void)
 			.vin_sel 		= PM8058_GPIO_VIN_S3,
 			.function 		= PM_GPIO_FUNC_NORMAL,
 			.inv_int_pol 	= 0,
-			.out_strength	= PM_GPIO_STRENGTH_LOW,
-			.output_value	= 0,
 		},
 	};
 
@@ -3535,9 +3533,6 @@ static char *semc_bdata_supplied_to[] = {
 static struct semc_battery_platform_data semc_battery_platform_data = {
 	.supplied_to = semc_bdata_supplied_to,
 	.num_supplicants = ARRAY_SIZE(semc_bdata_supplied_to),
-#ifndef CONFIG_BATTERY_BQ27520_SEMC
-	.use_fuelgauge = 1,
-#endif
 };
 
 static struct platform_device bdata_driver = {
@@ -3566,9 +3561,7 @@ struct bq27520_platform_data bq27520_platform_data = {
 	.num_supplicants = ARRAY_SIZE(bq27520_supplied_to),
 	.lipo_bat_max_volt = LIPO_BAT_MAX_VOLTAGE,
 	.lipo_bat_min_volt = LIPO_BAT_MIN_VOLTAGE,
-#ifdef CONFIG_BATTERY_BQ27520_SEMC
 	.battery_dev_name = SEMC_BDATA_NAME,
-#endif
 	.polling_lower_capacity = FULLY_CHARGED_AND_RECHARGE_CAP,
 	.polling_upper_capacity = 100,
 	.udatap = bq27520_block_table,
