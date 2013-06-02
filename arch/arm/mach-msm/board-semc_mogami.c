@@ -71,7 +71,9 @@
 #include <mach/msm_tsif.h>
 #include <mach/socinfo.h>
 #include <mach/msm_memtypes.h>
+#ifdef CONFIG_INPUT_AKM8975
 #include <linux/i2c/akm8975.h>
+#endif
 #include <linux/cyttsp-qc.h>
 #ifdef CONFIG_TOUCHSCREEN_CY8CTMA300_SPI
 #include <linux/spi/cy8ctma300_touch.h>
@@ -125,7 +127,9 @@
 
 #define NOVATEK_GPIO_RESET              (157)
 
+#ifdef CONFIG_INPUT_AKM8975
 #define AKM8975_GPIO			(92)
+#endif
 #ifdef CONFIG_INPUT_BMA150_NG
 #define BMA150_GPIO			(51)
 #endif
@@ -3918,6 +3922,7 @@ static struct apds9702_platform_data apds9702_pdata = {
 };
 #endif
 
+#ifdef CONFIG_INPUT_AKM8975
 static struct msm_gpio akm8975_gpio_config_data[] = {
 	{ GPIO_CFG(AKM8975_GPIO, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN,
 		GPIO_CFG_2MA), "akm8975_drdy_irq" },
@@ -3940,6 +3945,7 @@ static struct akm8975_platform_data akm8975_platform_data = {
 	.setup = akm8975_gpio_setup,
 	.shutdown = akm8975_gpio_shutdown,
 };
+#endif
 
 static struct i2c_board_info msm_i2c_board_info[] = {
 #ifdef CONFIG_TOUCHSCREEN_CLEARPAD_I2C
@@ -4007,11 +4013,13 @@ static struct i2c_board_info msm_i2c_board_info[] = {
 		.type = "sii9024a"
 	},
 #endif /* CONFIG_FB_MSM_HDMI_SII9024A_PANEL */
+#ifdef CONFIG_INPUT_AKM8975
 	{
 		I2C_BOARD_INFO(AKM8975_I2C_NAME, 0x18 >> 1),
 		.irq = MSM_GPIO_TO_INT(AKM8975_GPIO),
 		.platform_data = &akm8975_platform_data,
 	},
+#endif
 #ifdef CONFIG_LM3560_FLASHLED
 	{
 		/* Config-spec is 8-bit = 0xa6, src-code need 7-bit => 0x53 */
