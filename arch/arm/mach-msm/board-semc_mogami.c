@@ -71,7 +71,9 @@
 #include <mach/msm_tsif.h>
 #include <mach/socinfo.h>
 #include <mach/msm_memtypes.h>
+#ifdef CONFIG_INPUT_AKM8975
 #include <linux/i2c/akm8975.h>
+#endif
 #include <linux/cyttsp-qc.h>
 #ifdef CONFIG_TOUCHSCREEN_CY8CTMA300_SPI
 #include <linux/spi/cy8ctma300_touch.h>
@@ -85,9 +87,11 @@
 #ifdef CONFIG_INPUT_APDS9702
 #include <linux/apds9702.h>
 #endif
-#if defined(CONFIG_LM3560) || defined(CONFIG_LM3561)
-#include <linux/lm356x.h>
-#define LM356X_HW_RESET_GPIO 2
+#ifdef CONFIG_LM3560_FLASHLED
+#include <linux/lm3560.h>
+#endif
+#ifdef CONFIG_LM3561_FLASHLED
+#include <linux/lm3561.h>
 #endif
 
 #include <mach/mddi_novatek_fwvga.h>
@@ -123,7 +127,9 @@
 
 #define NOVATEK_GPIO_RESET              (157)
 
+#ifdef CONFIG_INPUT_AKM8975
 #define AKM8975_GPIO			(92)
+#endif
 #ifdef CONFIG_INPUT_BMA150_NG
 #define BMA150_GPIO			(51)
 #endif
@@ -159,8 +165,10 @@
 #include <mach/sdio_al.h>
 #include "smd_private.h"
 
+#ifdef CONFIG_LEDS_AS3676
 #include <linux/leds-as3676.h>
 #include "board-semc_mogami-leds.h"
+#endif
 #include "board-semc_mogami-touch.h"
 #include <mach/semc_rpc_server_handset.h>
 #include <linux/i2c/bq24185_charger.h>
@@ -496,8 +504,6 @@ static int pm8058_gpios_init(void)
 			.vin_sel 		= PM8058_GPIO_VIN_S3,
 			.function 		= PM_GPIO_FUNC_NORMAL,
 			.inv_int_pol 	= 0,
-			.out_strength	= PM_GPIO_STRENGTH_LOW,
-			.output_value	= 0,
 		},
 	};
 
@@ -3527,9 +3533,6 @@ static char *semc_bdata_supplied_to[] = {
 static struct semc_battery_platform_data semc_battery_platform_data = {
 	.supplied_to = semc_bdata_supplied_to,
 	.num_supplicants = ARRAY_SIZE(semc_bdata_supplied_to),
-#ifndef CONFIG_BATTERY_BQ27520_SEMC
-	.use_fuelgauge = 1,
-#endif
 };
 
 static struct platform_device bdata_driver = {
@@ -3558,9 +3561,7 @@ struct bq27520_platform_data bq27520_platform_data = {
 	.num_supplicants = ARRAY_SIZE(bq27520_supplied_to),
 	.lipo_bat_max_volt = LIPO_BAT_MAX_VOLTAGE,
 	.lipo_bat_min_volt = LIPO_BAT_MIN_VOLTAGE,
-#ifdef CONFIG_BATTERY_BQ27520_SEMC
 	.battery_dev_name = SEMC_BDATA_NAME,
-#endif
 	.polling_lower_capacity = FULLY_CHARGED_AND_RECHARGE_CAP,
 	.polling_upper_capacity = 100,
 	.udatap = bq27520_block_table,
@@ -3763,69 +3764,75 @@ static struct msm_hdmi_platform_data adv7520_hdmi_data = {
 	.check_hdcp_hw_support = hdmi_check_hdcp_hw_support,
 };
 
-#if defined(CONFIG_LM3560) || defined(CONFIG_LM3561)
-int lm356x_request_gpio_pins(void)
+#if defined(CONFIG_LM3560_FLASHLED) || defined(CONFIG_LM3561_FLASHLED)
+#define LM356x_HW_RESET_GPIO 2
+
+static int lm356x_pwr(struct device *dev, bool request)
 {
-	int result;
+	dev_dbg(dev, "%s: request %d\n", __func__, request);
 
-	result = gpio_request(LM356X_HW_RESET_GPIO, "LM356X hw reset");
-	if (result)
-		return result;
-
-	gpio_set_value(LM356X_HW_RESET_GPIO, 1);
-
-	udelay(20);
-	return result;
-}
-
-int lm356x_release_gpio_pins(void)
-{
-
-	gpio_set_value(LM356X_HW_RESET_GPIO, 0);
-	gpio_free(LM356X_HW_RESET_GPIO);
-
+	if (request) {
+		gpio_set_value(LM356x_HW_RESET_GPIO, 1);
+		udelay(20);
+	} else {
+		gpio_set_value(LM356x_HW_RESET_GPIO, 0);
+	}
 	return 0;
 }
-#endif
 
-#ifdef CONFIG_LM3560
+static int lm356x_platform_init(struct device *dev, bool request)
+{
+	int rc;
+
+	if (request) {
+		rc = gpio_request(LM3560_HW_RESET_GPIO, "LM3560 hw reset");
+		if (rc)
+			goto err;
+	} else {
+		rc = 0;
+		gpio_free(LM3560_HW_RESET_GPIO);
+	}
+err:
+	if (rc)
+		dev_err(dev, "%s: failed rc %d\n", __func__, rc);
+	return rc;
+}
+
+#ifdef CONFIG_LM3560_FLASHLED
 static struct lm356x_platform_data lm3560_platform_data = {
-	.hw_enable              = lm356x_request_gpio_pins,
-	.hw_disable             = lm356x_release_gpio_pins,
+	.power			= lm356x_pwr,
+	.platform_init          = lm356x_platform_init,
 	.led_nums		= 2,
-	.strobe_trigger		= LM356X_STROBE_TRIGGER_EDGE,
-	.privacy_terminate	= LM356X_PRIVACY_MODE_TURN_BACK,
+	.strobe_trigger		= LM3560_STROBE_TRIGGER_EDGE,
+	.privacy_terminate	= LM3560_PRIVACY_MODE_TURN_BACK,
 	.privacy_led_nums	= 1,
 	.privacy_blink_period	= 0, /* No bliking */
 	.current_limit		= 2300000, /* uA */
-	.flash_sync		= LM356X_SYNC_OFF,
-	.strobe_polarity	= LM356X_STROBE_POLARITY_HIGH,
-	.ledintc_pin_setting	= LM356X_LEDINTC_NTC_THERMISTOR_INPUT,
-	.tx1_polarity		= LM356X_TX1_POLARITY_HIGH,
-	.tx2_polarity		= LM356X_TX2_POLARITY_HIGH,
-	.hw_torch_mode		= LM356X_HW_TORCH_MODE_DISABLE,
+	.flash_sync		= LM3560_SYNC_OFF,
+	.strobe_polarity	= LM3560_STROBE_POLARITY_HIGH,
+	.ledintc_pin_setting	= LM3560_LEDINTC_NTC_THERMISTOR_INPUT,
+	.tx1_polarity		= LM3560_TX1_POLARITY_HIGH,
+	.tx2_polarity		= LM3560_TX2_POLARITY_HIGH,
+	.hw_torch_mode		= LM3560_HW_TORCH_MODE_DISABLE,
 };
 #endif
-#ifdef CONFIG_LM3561
+#ifdef CONFIG_LM3561_FLASHLED
 static struct lm356x_platform_data lm3561_platform_data = {
-	.hw_enable              = lm356x_request_gpio_pins,
-	.hw_disable             = lm356x_release_gpio_pins,
+	.power			= lm356x_pwr,
+	.platform_init          = lm356x_platform_init,
 	.led_nums		= 1,
-	.strobe_trigger		= LM356X_STROBE_TRIGGER_EDGE,
-	.privacy_terminate	= LM356X_PRIVACY_MODE_TURN_BACK,
-	.privacy_led_nums	= 0,
-	.privacy_blink_period	= 0, /* No bliking */
-	.current_limit		= 1000, /* uA
+	.strobe_trigger		= LM3561_STROBE_TRIGGER_EDGE,
+	.current_limit		= 1000000, /* uA
 				   selectable value are 1500mA or 1000mA.
 				   if set other value,
 				   it assume current limit is 1000mA.
 				*/
-	.flash_sync		= LM356X_SYNC_OFF,
-	.strobe_polarity	= LM356X_STROBE_POLARITY_HIGH,
-	.ledintc_pin_setting	= LM356X_LEDINTC_NTC_THERMISTOR_INPUT,
-	.tx1_polarity		= LM356X_TX1_POLARITY_HIGH,
-	.tx2_polarity		= LM356X_TX2_POLARITY_HIGH,
-	.hw_torch_mode		= LM356X_HW_TORCH_MODE_DISABLE,
+	.flash_sync		= LM3561_SYNC_OFF,
+	.strobe_polarity	= LM3561_STROBE_POLARITY_HIGH,
+	.ledintc_pin_setting	= LM3561_LEDINTC_NTC_THERMISTOR_INPUT,
+	.tx1_polarity		= LM3561_TX1_POLARITY_HIGH,
+	.tx2_polarity		= LM3561_TX2_POLARITY_HIGH,
+	.hw_torch_mode		= LM3561_HW_TORCH_MODE_DISABLE,
 };
 #endif
 
@@ -3910,6 +3917,7 @@ static struct apds9702_platform_data apds9702_pdata = {
 };
 #endif
 
+#ifdef CONFIG_INPUT_AKM8975
 static struct msm_gpio akm8975_gpio_config_data[] = {
 	{ GPIO_CFG(AKM8975_GPIO, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN,
 		GPIO_CFG_2MA), "akm8975_drdy_irq" },
@@ -3932,6 +3940,7 @@ static struct akm8975_platform_data akm8975_platform_data = {
 	.setup = akm8975_gpio_setup,
 	.shutdown = akm8975_gpio_shutdown,
 };
+#endif
 
 static struct i2c_board_info msm_i2c_board_info[] = {
 #ifdef CONFIG_TOUCHSCREEN_CLEARPAD_I2C
@@ -3949,10 +3958,13 @@ static struct i2c_board_info msm_i2c_board_info[] = {
 		I2C_BOARD_INFO("adv7520", ADV7520_I2C_ADDR),
 		.platform_data = &adv7520_hdmi_data,
 	},
+#ifdef CONFIG_LEDS_AS3676
 	{
+		/* Config-spec is 8-bit = 0x80, src-code need 7-bit => 0x40 */
 		I2C_BOARD_INFO("as3676", 0x80 >> 1),
 		.platform_data = &as3676_platform_data,
 	},
+#endif
 	{
 		I2C_BOARD_INFO(BQ27520_NAME, 0xAA >> 1),
 		.irq = MSM_GPIO_TO_INT(GPIO_BQ27520_SOC_INT),
@@ -3999,20 +4011,24 @@ static struct i2c_board_info msm_i2c_board_info[] = {
 		.type = "sii9024a"
 	},
 #endif /* CONFIG_FB_MSM_HDMI_SII9024A_PANEL */
+#ifdef CONFIG_INPUT_AKM8975
 	{
 		I2C_BOARD_INFO(AKM8975_I2C_NAME, 0x18 >> 1),
 		.irq = MSM_GPIO_TO_INT(AKM8975_GPIO),
 		.platform_data = &akm8975_platform_data,
 	},
-#ifdef CONFIG_LM3560
+#endif
+#ifdef CONFIG_LM3560_FLASHLED
 	{
-		I2C_BOARD_INFO("lm3560", 0xA6 >> 1),
+		/* Config-spec is 8-bit = 0xa6, src-code need 7-bit => 0x53 */
+		I2C_BOARD_INFO(LM3560_DRV_NAME, 0xa6 >> 1),
 		.platform_data = &lm3560_platform_data,
 	},
 #endif
-#ifdef CONFIG_LM3561
+#ifdef CONFIG_LM3561_FLASHLED
 	{
-		I2C_BOARD_INFO("lm3561", 0xA6 >> 1),
+		/* Config-spec is 8-bit = 0xa6, src-code need 7-bit => 0x53 */
+		I2C_BOARD_INFO(LM3561_DRV_NAME, 0xa6 >> 1),
 		.platform_data = &lm3561_platform_data,
 	},
 #endif
