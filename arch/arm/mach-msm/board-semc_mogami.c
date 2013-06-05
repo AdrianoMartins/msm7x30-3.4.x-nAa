@@ -71,7 +71,7 @@
 #include <mach/msm_tsif.h>
 #include <mach/socinfo.h>
 #include <mach/msm_memtypes.h>
-#ifdef CONFIG_INPUT_AKM8975
+#ifdef CONFIG_SENSORS_AKM8975
 #include <linux/i2c/akm8975.h>
 #endif
 #include <linux/cyttsp-qc.h>
@@ -87,11 +87,9 @@
 #ifdef CONFIG_INPUT_APDS9702
 #include <linux/apds9702.h>
 #endif
-#ifdef CONFIG_LM3560_FLASHLED
-#include <linux/lm3560.h>
-#endif
-#ifdef CONFIG_LM3561_FLASHLED
-#include <linux/lm3561.h>
+#if defined(CONFIG_LM3560) || defined(CONFIG_LM3561)
+#include <linux/lm356x.h>
+#define LM356X_HW_RESET_GPIO 2
 #endif
 
 #include <mach/mddi_novatek_fwvga.h>
@@ -127,7 +125,7 @@
 
 #define NOVATEK_GPIO_RESET              (157)
 
-#ifdef CONFIG_INPUT_AKM8975
+#ifdef CONFIG_SENSORS_AKM8975
 #define AKM8975_GPIO			(92)
 #endif
 #ifdef CONFIG_INPUT_BMA150_NG
@@ -504,6 +502,8 @@ static int pm8058_gpios_init(void)
 			.vin_sel 		= PM8058_GPIO_VIN_S3,
 			.function 		= PM_GPIO_FUNC_NORMAL,
 			.inv_int_pol 	= 0,
+			.out_strength	= PM_GPIO_STRENGTH_LOW,
+			.output_value	= 0,
 		},
 	};
 
@@ -1637,55 +1637,12 @@ static int __init buses_init(void)
 
 #define TIMPANI_RESET_GPIO	1
 
-struct bahama_config_register{
-	u8 reg;
-	u8 value;
-	u8 mask;
-};
-
-enum version{
-	VER_1_0,
-	VER_2_0,
-	VER_UNSUPPORTED = 0xFF
-};
-
 static struct regulator *vreg_marimba_1;
 static struct regulator *vreg_marimba_2;
-static struct regulator *vreg_bahama;
 
 static struct msm_gpio timpani_reset_gpio_cfg[] = {
 { GPIO_CFG(TIMPANI_RESET_GPIO, 0, GPIO_CFG_OUTPUT,
 	GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "timpani_reset"} };
-
-static u8 read_bahama_ver(void)
-{
-	int rc;
-	struct marimba config = { .mod_id = SLAVE_ID_BAHAMA };
-	u8 bahama_version;
-
-	rc = marimba_read_bit_mask(&config, 0x00,  &bahama_version, 1, 0x1F);
-	if (rc < 0) {
-		printk(KERN_ERR
-			 "%s: version read failed: %d\n",
-			__func__, rc);
-			return rc;
-	} else {
-		printk(KERN_INFO
-		"%s: version read got: 0x%x\n",
-		__func__, bahama_version);
-	}
-
-	switch (bahama_version) {
-	case 0x08: /* varient of bahama v1 */
-	case 0x10:
-	case 0x00:
-		return VER_1_0;
-	case 0x09: /* variant of bahama v2 */
-		return VER_2_0;
-	default:
-		return VER_UNSUPPORTED;
-	}
-}
 
 static int config_timpani_reset(void)
 {
@@ -1759,72 +1716,6 @@ static void msm_timpani_shutdown_power(void)
 
 	msm_gpios_free(timpani_reset_gpio_cfg,
 				   ARRAY_SIZE(timpani_reset_gpio_cfg));
-};
-
-static unsigned int msm_bahama_core_config(int type)
-{
-	int rc = 0;
-
-	if (type == BAHAMA_ID) {
-
-		int i;
-		struct marimba config = { .mod_id = SLAVE_ID_BAHAMA };
-
-		const struct bahama_config_register v20_init[] = {
-			/* reg, value, mask */
-			{ 0xF4, 0x84, 0xFF }, /* AREG */
-			{ 0xF0, 0x04, 0xFF } /* DREG */
-		};
-
-		if (read_bahama_ver() == VER_2_0) {
-			for (i = 0; i < ARRAY_SIZE(v20_init); i++) {
-				u8 value = v20_init[i].value;
-				rc = marimba_write_bit_mask(&config,
-					v20_init[i].reg,
-					&value,
-					sizeof(v20_init[i].value),
-					v20_init[i].mask);
-				if (rc < 0) {
-					printk(KERN_ERR
-						"%s: reg %d write failed: %d\n",
-						__func__, v20_init[i].reg, rc);
-					return rc;
-				}
-				printk(KERN_INFO "%s: reg 0x%02x value 0x%02x"
-					" mask 0x%02x\n",
-					__func__, v20_init[i].reg,
-					v20_init[i].value, v20_init[i].mask);
-			}
-		}
-	}
-	printk(KERN_INFO "core type: %d\n", type);
-
-	return rc;
-}
-
-static unsigned int msm_bahama_setup_power(void)
-{
-	int rc = regulator_enable(vreg_bahama);
-
-	if (rc)
-		pr_err("%s: regulator_enable failed (%d)\n", __func__, rc);
-
-	return rc;
-};
-
-static unsigned int msm_bahama_shutdown_power(int value)
-{
-	int rc = 0;
-
-	if (value != BAHAMA_ID) {
-		rc = regulator_disable(vreg_bahama);
-
-		if (rc)
-			pr_err("%s: regulator_disable failed (%d)\n",
-					__func__, rc);
-	}
-
-	return rc;
 };
 
 static struct msm_gpio marimba_svlte_config_clock[] = {
@@ -1904,162 +1795,6 @@ static void msm_marimba_shutdown_power(void)
 		pr_err("%s: regulator_disable failed (%d)\n", __func__, rc);
 };
 
-static int bahama_present(void)
-{
-	int id;
-	switch (id = adie_get_detected_connectivity_type()) {
-	case BAHAMA_ID:
-		return 1;
-
-	case MARIMBA_ID:
-		return 0;
-
-	case TIMPANI_ID:
-	default:
-	printk(KERN_ERR "%s: unexpected adie connectivity type: %d\n",
-			__func__, id);
-	return -ENODEV;
-	}
-}
-
-struct regulator *fm_regulator;
-static int fm_radio_setup(struct marimba_fm_platform_data *pdata)
-{
-	int rc, voltage;
-	uint32_t irqcfg;
-	const char *id = "FMPW";
-
-	int bahama_not_marimba = bahama_present();
-
-	if (bahama_not_marimba < 0) {
-		pr_warn("%s: bahama_present: %d\n",
-				__func__, bahama_not_marimba);
-		rc = -ENODEV;
-		goto out;
-	}
-	if (bahama_not_marimba) {
-		fm_regulator = regulator_get(NULL, "s3");
-		voltage = 1800000;
-	} else {
-		fm_regulator = regulator_get(NULL, "s2");
-		voltage = 1300000;
-	}
-
-	if (IS_ERR(fm_regulator)) {
-		rc = PTR_ERR(fm_regulator);
-		pr_err("%s: regulator_get failed (%d)\n", __func__, rc);
-		goto out;
-	}
-
-	rc = regulator_set_voltage(fm_regulator, voltage, voltage);
-
-	if (rc) {
-		pr_err("%s: regulator_set_voltage failed (%d)\n", __func__, rc);
-		goto regulator_free;
-	}
-
-	rc = regulator_enable(fm_regulator);
-
-	if (rc) {
-		pr_err("%s: regulator_enable failed (%d)\n", __func__, rc);
-		goto regulator_free;
-	}
-
-	rc = pmapp_clock_vote(id, PMAPP_CLOCK_ID_DO, PMAPP_CLOCK_VOTE_ON);
-
-	if (rc < 0) {
-		pr_err("%s: clock vote failed (%d)\n", __func__, rc);
-		goto regulator_disable;
-	}
-
-	/*Request the Clock Using GPIO34/AP2MDM_MRMBCK_EN in case
-	of svlte*/
-	if (machine_is_msm8x55_svlte_surf() || machine_is_msm8x55_svlte_ffa()) {
-		rc = marimba_gpio_config(1);
-		if (rc < 0) {
-			pr_err("%s: clock enable for svlte : %d\n",
-					__func__, rc);
-			goto clock_devote;
-		}
-	}
-	irqcfg = GPIO_CFG(147, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL,
-					GPIO_CFG_2MA);
-	rc = gpio_tlmm_config(irqcfg, GPIO_CFG_ENABLE);
-	if (rc) {
-		pr_err("%s: gpio_tlmm_config(%#x)=%d\n", __func__, irqcfg, rc);
-		rc = -EIO;
-		goto gpio_deconfig;
-
-	}
-	return 0;
-
-gpio_deconfig:
-	if (machine_is_msm8x55_svlte_surf() || machine_is_msm8x55_svlte_ffa())
-		marimba_gpio_config(0);
-clock_devote:
-	pmapp_clock_vote(id, PMAPP_CLOCK_ID_DO, PMAPP_CLOCK_VOTE_OFF);
-regulator_disable:
-	regulator_disable(fm_regulator);
-regulator_free:
-	regulator_put(fm_regulator);
-	fm_regulator = NULL;
-out:
-	return rc;
-};
-
-static void fm_radio_shutdown(struct marimba_fm_platform_data *pdata)
-{
-	int rc;
-	const char *id = "FMPW";
-	uint32_t irqcfg = GPIO_CFG(147, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP,
-					GPIO_CFG_2MA);
-
-	int bahama_not_marimba = bahama_present();
-	if (bahama_not_marimba == -1) {
-		pr_warn("%s: bahama_present: %d\n",
-				__func__, bahama_not_marimba);
-		return;
-	}
-
-	rc = gpio_tlmm_config(irqcfg, GPIO_CFG_ENABLE);
-	if (rc) {
-		pr_err("%s: gpio_tlmm_config(%#x)=%d\n", __func__, irqcfg, rc);
-	}
-	if (!IS_ERR_OR_NULL(fm_regulator)) {
-		rc = regulator_disable(fm_regulator);
-
-		if (rc)
-			pr_err("%s: return val: %d\n", __func__, rc);
-
-		regulator_put(fm_regulator);
-		fm_regulator = NULL;
-	}
-	rc = pmapp_clock_vote(id, PMAPP_CLOCK_ID_DO,
-					  PMAPP_CLOCK_VOTE_OFF);
-	if (rc < 0)
-		pr_err("%s: clock_vote return val: %d\n", __func__, rc);
-
-	/*Disable the Clock Using GPIO34/AP2MDM_MRMBCK_EN in case
-	of svlte*/
-	if (machine_is_msm8x55_svlte_surf() || machine_is_msm8x55_svlte_ffa()) {
-		rc = marimba_gpio_config(0);
-		if (rc < 0)
-			pr_err("%s: clock disable for svlte : %d\n",
-					__func__, rc);
-	}
-}
-
-static struct marimba_fm_platform_data marimba_fm_pdata = {
-	.fm_setup =  fm_radio_setup,
-	.fm_shutdown = fm_radio_shutdown,
-	.irq = MSM_GPIO_TO_INT(147),
-	.vreg_s2 = NULL,
-	.vreg_xo_out = NULL,
-	.is_fm_soc_i2s_master = false,
-	.config_i2s_gpio = NULL,
-};
-
-
 /* Slave id address for FM/CDC/QMEMBIST
  * Values can be programmed using Marimba slave id 0
  * should there be a conflict with other I2C devices
@@ -2067,9 +1802,6 @@ static struct marimba_fm_platform_data marimba_fm_pdata = {
 #define MARIMBA_SLAVE_ID_FM_ADDR	0x2A
 #define MARIMBA_SLAVE_ID_CDC_ADDR	0x77
 #define MARIMBA_SLAVE_ID_QMEMBIST_ADDR	0X66
-
-#define BAHAMA_SLAVE_ID_FM_ADDR         0x2A
-#define BAHAMA_SLAVE_ID_QMEMBIST_ADDR   0x7B
 
 static const char *tsadc_id = "MADC";
 
@@ -2289,15 +2021,9 @@ static struct marimba_platform_data marimba_pdata = {
 	.slave_id[MARIMBA_SLAVE_ID_FM]       = MARIMBA_SLAVE_ID_FM_ADDR,
 	.slave_id[MARIMBA_SLAVE_ID_CDC]	     = MARIMBA_SLAVE_ID_CDC_ADDR,
 	.slave_id[MARIMBA_SLAVE_ID_QMEMBIST] = MARIMBA_SLAVE_ID_QMEMBIST_ADDR,
-	.slave_id[SLAVE_ID_BAHAMA_FM]        = BAHAMA_SLAVE_ID_FM_ADDR,
-	.slave_id[SLAVE_ID_BAHAMA_QMEMBIST]  = BAHAMA_SLAVE_ID_QMEMBIST_ADDR,
 	.marimba_setup = msm_marimba_setup_power,
 	.marimba_shutdown = msm_marimba_shutdown_power,
-	.bahama_setup = msm_bahama_setup_power,
-	.bahama_shutdown = msm_bahama_shutdown_power,
 	.marimba_gpio_config = msm_marimba_gpio_config_svlte,
-	.bahama_core_config = msm_bahama_core_config,
-	.fm = &marimba_fm_pdata,
 	.codec = &mariba_codec_pdata,
 	.tsadc_ssbi_adap = MARIMBA_SSBI_ADAP,
 };
@@ -2337,7 +2063,6 @@ static void __init msm7x30_init_marimba(void)
 
 	vreg_marimba_1 = regs[0].consumer;
 	vreg_marimba_2 = regs[1].consumer;
-	vreg_bahama    = regs[2].consumer;
 }
 
 static struct marimba_codec_platform_data timpani_codec_pdata = {
@@ -3533,6 +3258,9 @@ static char *semc_bdata_supplied_to[] = {
 static struct semc_battery_platform_data semc_battery_platform_data = {
 	.supplied_to = semc_bdata_supplied_to,
 	.num_supplicants = ARRAY_SIZE(semc_bdata_supplied_to),
+#ifndef CONFIG_BATTERY_BQ27520_SEMC
+	.use_fuelgauge = 1,
+#endif
 };
 
 static struct platform_device bdata_driver = {
@@ -3561,7 +3289,9 @@ struct bq27520_platform_data bq27520_platform_data = {
 	.num_supplicants = ARRAY_SIZE(bq27520_supplied_to),
 	.lipo_bat_max_volt = LIPO_BAT_MAX_VOLTAGE,
 	.lipo_bat_min_volt = LIPO_BAT_MIN_VOLTAGE,
+#ifdef CONFIG_BATTERY_BQ27520_SEMC
 	.battery_dev_name = SEMC_BDATA_NAME,
+#endif
 	.polling_lower_capacity = FULLY_CHARGED_AND_RECHARGE_CAP,
 	.polling_upper_capacity = 100,
 	.udatap = bq27520_block_table,
@@ -3764,75 +3494,69 @@ static struct msm_hdmi_platform_data adv7520_hdmi_data = {
 	.check_hdcp_hw_support = hdmi_check_hdcp_hw_support,
 };
 
-#if defined(CONFIG_LM3560_FLASHLED) || defined(CONFIG_LM3561_FLASHLED)
-#define LM356x_HW_RESET_GPIO 2
-
-static int lm356x_pwr(struct device *dev, bool request)
+#if defined(CONFIG_LM3560) || defined(CONFIG_LM3561)
+int lm356x_request_gpio_pins(void)
 {
-	dev_dbg(dev, "%s: request %d\n", __func__, request);
+	int result;
 
-	if (request) {
-		gpio_set_value(LM356x_HW_RESET_GPIO, 1);
-		udelay(20);
-	} else {
-		gpio_set_value(LM356x_HW_RESET_GPIO, 0);
-	}
+	result = gpio_request(LM356X_HW_RESET_GPIO, "LM356X hw reset");
+	if (result)
+		return result;
+
+	gpio_set_value(LM356X_HW_RESET_GPIO, 1);
+
+	udelay(20);
+	return result;
+}
+
+int lm356x_release_gpio_pins(void)
+{
+
+	gpio_set_value(LM356X_HW_RESET_GPIO, 0);
+	gpio_free(LM356X_HW_RESET_GPIO);
+
 	return 0;
 }
+#endif
 
-static int lm356x_platform_init(struct device *dev, bool request)
-{
-	int rc;
-
-	if (request) {
-		rc = gpio_request(LM3560_HW_RESET_GPIO, "LM3560 hw reset");
-		if (rc)
-			goto err;
-	} else {
-		rc = 0;
-		gpio_free(LM3560_HW_RESET_GPIO);
-	}
-err:
-	if (rc)
-		dev_err(dev, "%s: failed rc %d\n", __func__, rc);
-	return rc;
-}
-
-#ifdef CONFIG_LM3560_FLASHLED
+#ifdef CONFIG_LM3560
 static struct lm356x_platform_data lm3560_platform_data = {
-	.power			= lm356x_pwr,
-	.platform_init          = lm356x_platform_init,
+	.hw_enable              = lm356x_request_gpio_pins,
+	.hw_disable             = lm356x_release_gpio_pins,
 	.led_nums		= 2,
-	.strobe_trigger		= LM3560_STROBE_TRIGGER_EDGE,
-	.privacy_terminate	= LM3560_PRIVACY_MODE_TURN_BACK,
+	.strobe_trigger		= LM356X_STROBE_TRIGGER_EDGE,
+	.privacy_terminate	= LM356X_PRIVACY_MODE_TURN_BACK,
 	.privacy_led_nums	= 1,
 	.privacy_blink_period	= 0, /* No bliking */
 	.current_limit		= 2300000, /* uA */
-	.flash_sync		= LM3560_SYNC_OFF,
-	.strobe_polarity	= LM3560_STROBE_POLARITY_HIGH,
-	.ledintc_pin_setting	= LM3560_LEDINTC_NTC_THERMISTOR_INPUT,
-	.tx1_polarity		= LM3560_TX1_POLARITY_HIGH,
-	.tx2_polarity		= LM3560_TX2_POLARITY_HIGH,
-	.hw_torch_mode		= LM3560_HW_TORCH_MODE_DISABLE,
+	.flash_sync		= LM356X_SYNC_OFF,
+	.strobe_polarity	= LM356X_STROBE_POLARITY_HIGH,
+	.ledintc_pin_setting	= LM356X_LEDINTC_NTC_THERMISTOR_INPUT,
+	.tx1_polarity		= LM356X_TX1_POLARITY_HIGH,
+	.tx2_polarity		= LM356X_TX2_POLARITY_HIGH,
+	.hw_torch_mode		= LM356X_HW_TORCH_MODE_DISABLE,
 };
 #endif
-#ifdef CONFIG_LM3561_FLASHLED
+#ifdef CONFIG_LM3561
 static struct lm356x_platform_data lm3561_platform_data = {
-	.power			= lm356x_pwr,
-	.platform_init          = lm356x_platform_init,
+	.hw_enable              = lm356x_request_gpio_pins,
+	.hw_disable             = lm356x_release_gpio_pins,
 	.led_nums		= 1,
-	.strobe_trigger		= LM3561_STROBE_TRIGGER_EDGE,
-	.current_limit		= 1000000, /* uA
+	.strobe_trigger		= LM356X_STROBE_TRIGGER_EDGE,
+	.privacy_terminate	= LM356X_PRIVACY_MODE_TURN_BACK,
+	.privacy_led_nums	= 0,
+	.privacy_blink_period	= 0, /* No bliking */
+	.current_limit		= 1000, /* uA
 				   selectable value are 1500mA or 1000mA.
 				   if set other value,
 				   it assume current limit is 1000mA.
 				*/
-	.flash_sync		= LM3561_SYNC_OFF,
-	.strobe_polarity	= LM3561_STROBE_POLARITY_HIGH,
-	.ledintc_pin_setting	= LM3561_LEDINTC_NTC_THERMISTOR_INPUT,
-	.tx1_polarity		= LM3561_TX1_POLARITY_HIGH,
-	.tx2_polarity		= LM3561_TX2_POLARITY_HIGH,
-	.hw_torch_mode		= LM3561_HW_TORCH_MODE_DISABLE,
+	.flash_sync		= LM356X_SYNC_OFF,
+	.strobe_polarity	= LM356X_STROBE_POLARITY_HIGH,
+	.ledintc_pin_setting	= LM356X_LEDINTC_NTC_THERMISTOR_INPUT,
+	.tx1_polarity		= LM356X_TX1_POLARITY_HIGH,
+	.tx2_polarity		= LM356X_TX2_POLARITY_HIGH,
+	.hw_torch_mode		= LM356X_HW_TORCH_MODE_DISABLE,
 };
 #endif
 
@@ -3917,7 +3641,7 @@ static struct apds9702_platform_data apds9702_pdata = {
 };
 #endif
 
-#ifdef CONFIG_INPUT_AKM8975
+#ifdef CONFIG_SENSORS_AKM8975
 static struct msm_gpio akm8975_gpio_config_data[] = {
 	{ GPIO_CFG(AKM8975_GPIO, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN,
 		GPIO_CFG_2MA), "akm8975_drdy_irq" },
@@ -4011,24 +3735,22 @@ static struct i2c_board_info msm_i2c_board_info[] = {
 		.type = "sii9024a"
 	},
 #endif /* CONFIG_FB_MSM_HDMI_SII9024A_PANEL */
-#ifdef CONFIG_INPUT_AKM8975
+#ifdef CONFIG_SENSORS_AKM8975
 	{
 		I2C_BOARD_INFO(AKM8975_I2C_NAME, 0x18 >> 1),
 		.irq = MSM_GPIO_TO_INT(AKM8975_GPIO),
 		.platform_data = &akm8975_platform_data,
 	},
 #endif
-#ifdef CONFIG_LM3560_FLASHLED
+#ifdef CONFIG_LM3560
 	{
-		/* Config-spec is 8-bit = 0xa6, src-code need 7-bit => 0x53 */
-		I2C_BOARD_INFO(LM3560_DRV_NAME, 0xa6 >> 1),
+		I2C_BOARD_INFO("lm3560", 0xA6 >> 1),
 		.platform_data = &lm3560_platform_data,
 	},
 #endif
-#ifdef CONFIG_LM3561_FLASHLED
+#ifdef CONFIG_LM3561
 	{
-		/* Config-spec is 8-bit = 0xa6, src-code need 7-bit => 0x53 */
-		I2C_BOARD_INFO(LM3561_DRV_NAME, 0xa6 >> 1),
+		I2C_BOARD_INFO("lm3561", 0xA6 >> 1),
 		.platform_data = &lm3561_platform_data,
 	},
 #endif
