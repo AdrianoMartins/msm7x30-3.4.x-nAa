@@ -77,13 +77,13 @@ struct as3676_platform_data as3676_platform_data = {
 		.on_charge_pump = 1,
 		.max_current_uA = 5000,
 	},
-	.leds[11] = {
+	.leds[9] = {
 		.name = "keyboard-backlight-rgb1",
 		.on_charge_pump = 0,
 		.max_current_uA = 5000,
 		.startup_current_uA = 5000,
 	},
-	.leds[12] = {
+	.leds[10] = {
 		.name = "keyboard-backlight-rgb2",
 		.on_charge_pump = 0,
 		.max_current_uA = 5000,
